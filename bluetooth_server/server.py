@@ -1,5 +1,6 @@
 import logging
 import struct
+import json
 import subprocess
 import uuid
 from threading import Thread
@@ -88,7 +89,8 @@ class BluetoothApp(Thread):
         while self._running:
             client_socket = self._wait_for_client()
             self._logger.info("Handling client")
-            self._handle_client(client_socket)
+            while client_socket:
+                self._handle_client(client_socket)
         
     def stop(self):
         self._running = False
@@ -119,4 +121,10 @@ class BluetoothApp(Thread):
         data = _recv_client_data(client_socket)
         if end_point in self._end_points:
             return_data = self._end_points[end_point](data=data)
+            if return_data is None:
+                return_data = b''
+            if type(return_data) is str:
+                return_data = return_data.encode()
+            if type(return_data) is dict:
+                return_data = json.dumps(return_data).encode()
             _send_client_response(client_socket, return_data)
