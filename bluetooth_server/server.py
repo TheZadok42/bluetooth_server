@@ -2,6 +2,7 @@ import logging
 import struct
 import subprocess
 import uuid
+from threading import Thread
 
 import bluetooth
 
@@ -37,19 +38,24 @@ def _get_current_bluetooth_address():
     return subprocess.check_output("""hciconfig | grep "BD Address" | awk '{ print $3}'""", shell=True).decode().strip()
 
 
-class BluetoothApp:
+class BluetoothApp(Thread):
     _SERVICE_UUID = str(uuid.uuid1())
 
     def __init__(self, service_name, service_uuid=None, port=bluetooth.PORT_ANY, backlog=1, logger=None):
+        Thread.__init__(self)
         self._name = service_name
         self._service_uuid = service_uuid or self._SERVICE_UUID
         self._port = port
         self._backlog = backlog
+
         self._logger = logger or logging.getLogger(__name__)
 
         self._mac_address = _get_current_bluetooth_address()
         self._end_points = dict()
+
         self._server_socket = None
+        self._running = True
+        self.daemon = True
 
     @property
     def server_socket(self):
@@ -61,23 +67,31 @@ class BluetoothApp:
         return self._server_socket
 
     def register(self, end_point):
-        if end_point in self._end_points:
-            raise EndpointExistsError("The given endpoint already exists")
-
         def _register_wrapper(func):
             def _inner_wrapper(*args, **kwargs):
                 return func(*args, **kwargs)
 
-            self._end_points[end_point] = func
+            self.register_endpoint(end_point, func)
             return _inner_wrapper
-
         return _register_wrapper
+
+    
+    def register_endpoint(self, end_point, callback):
+        if end_point in self._end_points:
+            raise EndpointExistsError("The given endpoint already exists")
+
+        self._end_points[end_point] = callback
 
     def run(self):
         self._start_listening()
         self._advertise_service()
-        client_socket = self._wait_for_client()
-        self._handle_client(client_socket)
+        while self._running:
+            client_socket = self._wait_for_client()
+            self._logger.info("Handling client")
+            self._handle_client(client_socket)
+        
+    def stop(self):
+        self._running = False
 
     def _start_listening(self):
         self.server_socket.listen(self._backlog)
@@ -100,7 +114,6 @@ class BluetoothApp:
         return client_socket
 
     def _handle_client(self, client_socket):
-        self._logger.info("Handling client")
         end_point = _recv_client_endpoint(client_socket)
         self._logger.debug(f"Running endpoint {end_point}")
         data = _recv_client_data(client_socket)
