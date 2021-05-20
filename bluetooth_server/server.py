@@ -89,7 +89,7 @@ class BluetoothApp(Thread):
         while self._running:
             client_socket = self._wait_for_client()
             self._logger.info("Handling client")
-            while client_socket:
+            while client_socket and self._running:
                 self._handle_client(client_socket)
         
     def stop(self):
