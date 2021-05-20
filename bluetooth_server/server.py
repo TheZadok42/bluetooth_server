@@ -104,5 +104,6 @@ class BluetoothApp:
         end_point = _recv_client_endpoint(client_socket)
         self._logger.debug(f"Running endpoint {end_point}")
         data = _recv_client_data(client_socket)
-        return_data = self._end_points[end_point](data=data)
-        _send_client_response(client_socket, return_data)
+        if end_point in self._end_points:
+            return_data = self._end_points[end_point](data=data)
+            _send_client_response(client_socket, return_data)
