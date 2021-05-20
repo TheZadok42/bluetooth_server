@@ -87,13 +87,23 @@ class BluetoothApp(Thread):
         self._start_listening()
         self._advertise_service()
         while self._running:
-            client_socket = self._wait_for_client()
-            self._logger.info("Handling client")
-            while client_socket and self._running:
-                self._handle_client(client_socket)
+            try:
+                self._handle_clients()
+            except Exception:
+                self._logger.exception("Unhandled exception")
         
     def stop(self):
         self._running = False
+    
+    def _handle_clients(self):
+        client_socket = self._wait_for_client()
+        self._logger.info("Handling client")
+        while client_socket and self._running:
+            try:
+                self._handle_client(client_socket)
+            except bluetooth.btcommon.BluetoothError:
+                self._logger.exception("Client disconnected")
+                client_socket = None
 
     def _start_listening(self):
         self.server_socket.listen(self._backlog)
@@ -120,11 +130,18 @@ class BluetoothApp(Thread):
         self._logger.debug(f"Running endpoint {end_point}")
         data = _recv_client_data(client_socket)
         if end_point in self._end_points:
+            self._run_endpoint(client_socket, end_point, data)
+    
+    def _run_endpoint(self, client_socket, end_point, data):
+        try:
             return_data = self._end_points[end_point](data=data)
-            if return_data is None:
-                return_data = b''
-            if type(return_data) is str:
-                return_data = return_data.encode()
-            if type(return_data) is dict:
-                return_data = json.dumps(return_data).encode()
-            _send_client_response(client_socket, return_data)
+        except Exception as e:
+            self._logger.exception("Unhandled end-point exception")
+            return_data = {"error": str(e)}
+        if return_data is None:
+            return_data = b''
+        if type(return_data) is str:
+            return_data = return_data.encode()
+        if type(return_data) is dict:
+            return_data = json.dumps(return_data).encode()
+        _send_client_response(client_socket, return_data)
