@@ -12,10 +12,12 @@ class EndpointExistsError(Exception):
     pass
 
 
-def _send_client_response(client_socket: bluetooth.BluetoothSocket, return_data: bytes):
+def _send_client_response(client_socket: bluetooth.BluetoothSocket,
+                          return_data: bytes):
     if return_data is None:
         return_data = b''
-    parsed_return_data = struct.pack(f'I{len(return_data)}s', len(return_data), return_data)
+    parsed_return_data = struct.pack(f'I{len(return_data)}s', len(return_data),
+                                     return_data)
     client_socket.send(parsed_return_data)
 
 
@@ -36,13 +38,20 @@ def _recv_client_endpoint(client_socket: bluetooth.BluetoothSocket):
 
 
 def _get_current_bluetooth_address():
-    return subprocess.check_output("""hciconfig | grep "BD Address" | awk '{ print $3}'""", shell=True).decode().strip()
+    return subprocess.check_output(
+        """hciconfig | grep "BD Address" | awk '{ print $3}'""",
+        shell=True).decode().strip()
 
 
 class BluetoothApp(Thread):
     _SERVICE_UUID = str(uuid.uuid1())
 
-    def __init__(self, service_name, service_uuid=None, port=bluetooth.PORT_ANY, backlog=1, logger=None):
+    def __init__(self,
+                 service_name,
+                 service_uuid=None,
+                 port=bluetooth.PORT_ANY,
+                 backlog=1,
+                 logger=None):
         Thread.__init__(self)
         self._name = service_name
         self._service_uuid = service_uuid or self._SERVICE_UUID
@@ -74,9 +83,9 @@ class BluetoothApp(Thread):
 
             self.register_endpoint(end_point, func)
             return _inner_wrapper
+
         return _register_wrapper
 
-    
     def register_endpoint(self, end_point, callback):
         if end_point in self._end_points:
             raise EndpointExistsError("The given endpoint already exists")
@@ -91,24 +100,28 @@ class BluetoothApp(Thread):
                 self._handle_clients()
             except Exception:
                 self._logger.exception("Unhandled exception")
-        
+
     def stop(self):
         self._running = False
-    
+
     def _handle_clients(self):
         client_socket = self._wait_for_client()
         self._logger.info("Handling client")
         while client_socket and self._running:
             try:
                 self._handle_client(client_socket)
-            except bluetooth.btcommon.BluetoothError:
-                self._logger.exception("Client disconnected")
+            except bluetooth.btcommon.BluetoothError as e:
+                if e.errno == 104:
+                    self._logger.info("Client disconnected")
+                else:
+                    self._logger.exception("Unexpected client error")
                 client_socket = None
 
     def _start_listening(self):
         self.server_socket.listen(self._backlog)
-        self._logger.info(f"Listening on ({self._mac_address}, {self.server_socket.getsockname()[1]})"
-                          f" with [{self._service_uuid}]")
+        self._logger.info(
+            f"Listening on ({self._mac_address}, {self.server_socket.getsockname()[1]})"
+            f" with [{self._service_uuid}]")
 
     def _advertise_service(self):
         bluetooth.advertise_service(
@@ -116,8 +129,7 @@ class BluetoothApp(Thread):
             self._name,
             service_id=self._service_uuid,
             service_classes=[self._service_uuid, bluetooth.SERIAL_PORT_CLASS],
-            profiles=[bluetooth.SERIAL_PORT_PROFILE]
-        )
+            profiles=[bluetooth.SERIAL_PORT_PROFILE])
 
     def _wait_for_client(self):
         self._logger.debug("Waiting for client")
@@ -131,7 +143,7 @@ class BluetoothApp(Thread):
         data = _recv_client_data(client_socket)
         if end_point in self._end_points:
             self._run_endpoint(client_socket, end_point, data)
-    
+
     def _run_endpoint(self, client_socket, end_point, data):
         try:
             return_data = self._end_points[end_point](data=data)
